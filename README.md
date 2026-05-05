@@ -45,7 +45,7 @@ See `docker-compose.yaml` for complete list of configurable options.
 
 ## 📂 Volumes
 
-- `./rootfs/data/plane` - Data storage
+- `./volumes/data/plane` - Data storage
 
 ## 🔍 Logging
 
