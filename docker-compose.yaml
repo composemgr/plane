@@ -18,6 +18,7 @@ services:
     environment:
       TZ: ${TZ:-America/New_York}
       NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
+      CONTAINER_NAME: plane-web
     depends_on:
       - api
       - worker
@@ -40,11 +41,12 @@ services:
       CORS_ALLOWED_ORIGINS: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
       EMAIL_HOST: ${EMAIL_SERVER_HOST:-localhost}
       EMAIL_PORT: ${EMAIL_SERVER_PORT:-587}
-      EMAIL_HOST_USER: ${EMAIL_SERVER_USER:-""}
-      EMAIL_HOST_PASSWORD: ${EMAIL_SERVER_PASS:-""}
+      EMAIL_HOST_USER: ${EMAIL_SERVER_LOGIN_NAME:-""}
+      EMAIL_HOST_PASSWORD: ${EMAIL_SERVER_LOGIN_PASS:-""}
       EMAIL_FROM: ${EMAIL_SERVER_MAIL_FROM:-noreply@example.com}
       DEFAULT_EMAIL: ${APP_ADMIN_USER:-admin@example.com}
       DEFAULT_PASSWORD: ${APP_ADMIN_PASS:-changeme_admin_password}
+      CONTAINER_NAME: plane-api
     depends_on:
       plane-db:
         condition: service_healthy
@@ -65,6 +67,7 @@ services:
       SECRET_KEY: ${APP_SECRET_KEY:-changeme_secret_key_min_32_chars}
       DATABASE_URL: postgresql://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-db:5432/${DB_CREATE_DATABASE_NAME:-plane}
       REDIS_URL: redis://plane-redis:6379/
+      CONTAINER_NAME: plane-worker
     depends_on:
       - api
     networks:
@@ -80,6 +83,8 @@ services:
       TZ: ${TZ:-America/New_York}
       FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-5242880}
       BUCKET_NAME: ${BUCKET_NAME:-uploads}
+      CONTAINER_NAME: plane-proxy
+      HOSTNAME: ${BASE_HOST_NAME:-$HOSTNAME}
     ports:
       - '172.17.0.1:3000:80'
     depends_on:
@@ -87,6 +92,24 @@ services:
       - api
     networks:
       - plane
+      - proxy
+      - cloudflare
+    labels:
+      - 'traefik.enable=true'
+      - 'cloudflare.enable=true'
+      - 'traefik.docker.network=proxy'
+      - 'cloudflare.service=http://plane-proxy:80'
+      - 'cloudflare.hostname=plane.${CLOUDFLARE_ZONE_NAME:-}'
+      - 'traefik.http.routers.plane-proxy.entrypoints=http'
+      - 'traefik.http.routers.plane-proxy-secure.tls=true'
+      - 'traefik.http.routers.plane-proxy.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
+      - 'traefik.http.middlewares.plane-proxy-https-redirect.redirectscheme.scheme=https'
+      - 'traefik.http.routers.plane-proxy.middlewares=plane-proxy-https-redirect'
+      - 'traefik.http.routers.plane-proxy-secure.entrypoints=https'
+      - 'traefik.http.routers.plane-proxy-secure.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
+      - 'traefik.http.routers.plane-proxy-secure.tls.certresolver=cloudflare'
+      - 'traefik.http.routers.plane-proxy-secure.service=plane-proxy'
+      - 'traefik.http.services.plane-proxy.loadbalancer.server.port=80'
 
   plane-db:
     image: postgres:latest
@@ -99,6 +122,7 @@ services:
       POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-plane}
       POSTGRES_USER: ${DB_USER_NAME:-plane}
       POSTGRES_PASSWORD: ${DB_USER_PASS:-changeme_db_password}
+      CONTAINER_NAME: plane-db
     volumes:
       - './volumes/data/db/postgres/plane:/var/lib/postgresql/data'
     healthcheck:
@@ -115,6 +139,8 @@ services:
     restart: always
     pull_policy: always
     logging: *default-logging
+    environment:
+      CONTAINER_NAME: plane-redis
     volumes:
       - './volumes/data/db/redis/plane:/data'
     networks:
@@ -124,3 +150,7 @@ networks:
   plane:
     name: plane
     external: false
+  proxy:
+    external: true
+  cloudflare:
+    external: true
