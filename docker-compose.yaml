@@ -8,19 +8,115 @@ x-logging: &default-logging
   driver: json-file
 
 services:
-  app:
-    image: makeplane/plane-web:latest
-    container_name: plane-app
+  web:
+    image: makeplane/plane-frontend:latest
+    container_name: plane-web
     hostname: ${BASE_HOST_NAME:-$HOSTNAME}
     restart: always
     pull_policy: always
     logging: *default-logging
     environment:
       TZ: ${TZ:-America/New_York}
+      NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
+    depends_on:
+      - api
+      - worker
+    networks:
+      - plane
+
+  api:
+    image: makeplane/plane-backend:latest
+    container_name: plane-api
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    command: ./bin/docker-entrypoint-api.sh
+    environment:
+      TZ: ${TZ:-America/New_York}
+      SECRET_KEY: ${APP_SECRET_KEY:-changeme_secret_key_min_32_chars}
+      DATABASE_URL: postgresql://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-db:5432/${DB_CREATE_DATABASE_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379/
+      WEB_URL: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
+      CORS_ALLOWED_ORIGINS: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
+      EMAIL_HOST: ${EMAIL_SERVER_HOST:-localhost}
+      EMAIL_PORT: ${EMAIL_SERVER_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_SERVER_USER:-""}
+      EMAIL_HOST_PASSWORD: ${EMAIL_SERVER_PASS:-""}
+      EMAIL_FROM: ${EMAIL_SERVER_MAIL_FROM:-noreply@example.com}
+      DEFAULT_EMAIL: ${APP_ADMIN_USER:-admin@example.com}
+      DEFAULT_PASSWORD: ${APP_ADMIN_PASS:-changeme_admin_password}
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_started
+    networks:
+      - plane
+
+  worker:
+    image: makeplane/plane-backend:latest
+    container_name: plane-worker
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    command: ./bin/docker-entrypoint-worker.sh
+    environment:
+      TZ: ${TZ:-America/New_York}
+      SECRET_KEY: ${APP_SECRET_KEY:-changeme_secret_key_min_32_chars}
+      DATABASE_URL: postgresql://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-db:5432/${DB_CREATE_DATABASE_NAME:-plane}
+      REDIS_URL: redis://plane-redis:6379/
+    depends_on:
+      - api
+    networks:
+      - plane
+
+  proxy:
+    image: makeplane/plane-proxy:latest
+    container_name: plane-proxy
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: ${TZ:-America/New_York}
+      FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-5242880}
+      BUCKET_NAME: ${BUCKET_NAME:-uploads}
     ports:
-      - '172.17.0.1:3000:3000'
+      - '172.17.0.1:3000:80'
+    depends_on:
+      - web
+      - api
+    networks:
+      - plane
+
+  plane-db:
+    image: postgres:latest
+    container_name: plane-db
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: ${TZ:-America/New_York}
+      POSTGRES_DB: ${DB_CREATE_DATABASE_NAME:-plane}
+      POSTGRES_USER: ${DB_USER_NAME:-plane}
+      POSTGRES_PASSWORD: ${DB_USER_PASS:-changeme_db_password}
     volumes:
-      - './volumes/data/plane:/data'
+      - './volumes/data/db/postgres/plane:/var/lib/postgresql/data'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER_NAME:-plane} -d ${DB_CREATE_DATABASE_NAME:-plane}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - plane
+
+  plane-redis:
+    image: redis:alpine
+    container_name: plane-redis
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    volumes:
+      - './volumes/data/db/redis/plane:/data'
     networks:
       - plane
 
