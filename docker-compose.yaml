@@ -7,6 +7,27 @@ x-logging: &default-logging
     max-file: '1'
   driver: json-file
 
+x-app-env: &app-env
+  SECRET_KEY: ${APP_SECRET_KEY:-changeme_secret_key_min_32_chars}
+  DATABASE_URL: postgresql://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-db:5432/${DB_CREATE_DATABASE_NAME:-plane}
+  REDIS_URL: redis://plane-redis:6379/
+  AMQP_URL: amqp://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-mq:5672/
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${APP_ADMIN_USER:-plane-minio}
+  AWS_SECRET_ACCESS_KEY: ${APP_ADMIN_PASS:-changeme_admin_password}
+  AWS_S3_ENDPOINT_URL: http://plane-minio:9000
+  AWS_S3_BUCKET_NAME: ${BUCKET_NAME:-uploads}
+  FILE_SIZE_LIMIT: ${FILE_SIZE_LIMIT:-5242880}
+  WEB_URL: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
+  CORS_ALLOWED_ORIGINS: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
+  EMAIL_HOST: ${EMAIL_SERVER_HOST:-localhost}
+  EMAIL_PORT: ${EMAIL_SERVER_PORT:-587}
+  EMAIL_HOST_USER: ${EMAIL_SERVER_LOGIN_NAME:-""}
+  EMAIL_HOST_PASSWORD: ${EMAIL_SERVER_LOGIN_PASS:-""}
+  EMAIL_FROM: ${EMAIL_SERVER_MAIL_FROM:-noreply@example.com}
+  DEFAULT_EMAIL: ${APP_ADMIN_USER:-admin@example.com}
+  DEFAULT_PASSWORD: ${APP_ADMIN_PASS:-changeme_admin_password}
+
 services:
   web:
     image: makeplane/plane-frontend:latest
@@ -25,6 +46,38 @@ services:
     networks:
       - plane
 
+  space:
+    image: makeplane/plane-space:latest
+    container_name: plane-space
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: ${TZ:-America/New_York}
+      NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
+      CONTAINER_NAME: plane-space
+    depends_on:
+      - api
+      - worker
+    networks:
+      - plane
+
+  admin:
+    image: makeplane/plane-admin:latest
+    container_name: plane-admin
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      TZ: ${TZ:-America/New_York}
+      NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
+      CONTAINER_NAME: plane-admin
+    depends_on:
+      - api
+      - worker
+    networks:
+      - plane
+
   api:
     image: makeplane/plane-backend:latest
     container_name: plane-api
@@ -34,24 +87,15 @@ services:
     command: ./bin/docker-entrypoint-api.sh
     environment:
       TZ: ${TZ:-America/New_York}
-      SECRET_KEY: ${APP_SECRET_KEY:-changeme_secret_key_min_32_chars}
-      DATABASE_URL: postgresql://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-db:5432/${DB_CREATE_DATABASE_NAME:-plane}
-      REDIS_URL: redis://plane-redis:6379/
-      WEB_URL: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
-      CORS_ALLOWED_ORIGINS: https://${BASE_HOST_NAME:-localhost}.${BASE_DOMAIN_NAME:-example.com}
-      EMAIL_HOST: ${EMAIL_SERVER_HOST:-localhost}
-      EMAIL_PORT: ${EMAIL_SERVER_PORT:-587}
-      EMAIL_HOST_USER: ${EMAIL_SERVER_LOGIN_NAME:-""}
-      EMAIL_HOST_PASSWORD: ${EMAIL_SERVER_LOGIN_PASS:-""}
-      EMAIL_FROM: ${EMAIL_SERVER_MAIL_FROM:-noreply@example.com}
-      DEFAULT_EMAIL: ${APP_ADMIN_USER:-admin@example.com}
-      DEFAULT_PASSWORD: ${APP_ADMIN_PASS:-changeme_admin_password}
+      <<: *app-env
       CONTAINER_NAME: plane-api
     depends_on:
       plane-db:
         condition: service_healthy
       plane-redis:
         condition: service_started
+      plane-mq:
+        condition: service_healthy
     networks:
       - plane
 
@@ -64,12 +108,43 @@ services:
     command: ./bin/docker-entrypoint-worker.sh
     environment:
       TZ: ${TZ:-America/New_York}
-      SECRET_KEY: ${APP_SECRET_KEY:-changeme_secret_key_min_32_chars}
-      DATABASE_URL: postgresql://${DB_USER_NAME:-plane}:${DB_USER_PASS:-changeme_db_password}@plane-db:5432/${DB_CREATE_DATABASE_NAME:-plane}
-      REDIS_URL: redis://plane-redis:6379/
+      <<: *app-env
       CONTAINER_NAME: plane-worker
     depends_on:
       - api
+    networks:
+      - plane
+
+  beat-worker:
+    image: makeplane/plane-backend:latest
+    container_name: plane-beat-worker
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    command: ./bin/docker-entrypoint-beat.sh
+    environment:
+      TZ: ${TZ:-America/New_York}
+      <<: *app-env
+      CONTAINER_NAME: plane-beat-worker
+    depends_on:
+      - api
+    networks:
+      - plane
+
+  migrator:
+    image: makeplane/plane-backend:latest
+    container_name: plane-migrator
+    restart: on-failure
+    pull_policy: always
+    logging: *default-logging
+    command: ./bin/docker-entrypoint-migrator.sh
+    environment:
+      TZ: ${TZ:-America/New_York}
+      <<: *app-env
+      CONTAINER_NAME: plane-migrator
+    depends_on:
+      plane-db:
+        condition: service_healthy
     networks:
       - plane
 
@@ -112,7 +187,7 @@ services:
       - 'traefik.http.services.plane-proxy.loadbalancer.server.port=80'
 
   plane-db:
-    image: postgres:latest
+    image: postgres:15-alpine
     container_name: plane-db
     restart: always
     pull_policy: always
@@ -134,7 +209,7 @@ services:
       - plane
 
   plane-redis:
-    image: redis:alpine
+    image: valkey/valkey:7-alpine
     container_name: plane-redis
     restart: always
     pull_policy: always
@@ -143,6 +218,47 @@ services:
       CONTAINER_NAME: plane-redis
     volumes:
       - './volumes/data/db/redis/plane:/data'
+    networks:
+      - plane
+
+  plane-mq:
+    image: rabbitmq:3-alpine
+    container_name: plane-mq
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${DB_USER_NAME:-plane}
+      RABBITMQ_DEFAULT_PASS: ${DB_USER_PASS:-changeme_db_password}
+      CONTAINER_NAME: plane-mq
+    volumes:
+      - './volumes/data/db/rabbitmq/plane:/var/lib/rabbitmq'
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - plane
+
+  plane-minio:
+    image: minio/minio:latest
+    container_name: plane-minio
+    restart: always
+    pull_policy: always
+    logging: *default-logging
+    command: server /data --console-address ":9090"
+    environment:
+      MINIO_ROOT_USER: ${APP_ADMIN_USER:-plane-minio}
+      MINIO_ROOT_PASSWORD: ${APP_ADMIN_PASS:-changeme_admin_password}
+      CONTAINER_NAME: plane-minio
+    volumes:
+      - './volumes/data/minio/plane:/data'
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - plane
 
