@@ -1,4 +1,4 @@
-# nginx proxy address - http://172.17.0.1:3000
+# nginx proxy address - http://172.17.0.1:64304
 
 name: plane
 x-logging: &default-logging
@@ -160,31 +160,13 @@ services:
       BUCKET_NAME: ${BUCKET_NAME:-uploads}
       CONTAINER_NAME: plane-proxy
       HOSTNAME: ${BASE_HOST_NAME:-$HOSTNAME}
-    ports:
-      - '172.17.0.1:3000:80'
     depends_on:
       - web
       - api
+    ports:
+      - '172.17.0.1:64304:80'
     networks:
       - plane
-      - proxy
-      - cloudflare
-    labels:
-      - 'traefik.enable=true'
-      - 'cloudflare.enable=true'
-      - 'traefik.docker.network=proxy'
-      - 'cloudflare.service=http://plane-proxy:80'
-      - 'cloudflare.hostname=plane.${CLOUDFLARE_ZONE_NAME:-}'
-      - 'traefik.http.routers.plane-proxy.entrypoints=http'
-      - 'traefik.http.routers.plane-proxy-secure.tls=true'
-      - 'traefik.http.routers.plane-proxy.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
-      - 'traefik.http.middlewares.plane-proxy-https-redirect.redirectscheme.scheme=https'
-      - 'traefik.http.routers.plane-proxy.middlewares=plane-proxy-https-redirect'
-      - 'traefik.http.routers.plane-proxy-secure.entrypoints=https'
-      - 'traefik.http.routers.plane-proxy-secure.rule=Host($(${BASE_HOST_NAME:-$HOSTNAME}))'
-      - 'traefik.http.routers.plane-proxy-secure.tls.certresolver=cloudflare'
-      - 'traefik.http.routers.plane-proxy-secure.service=plane-proxy'
-      - 'traefik.http.services.plane-proxy.loadbalancer.server.port=80'
 
   plane-db:
     image: postgres:15-alpine
@@ -242,7 +224,7 @@ services:
       - plane
 
   plane-minio:
-    image: minio/minio:latest
+    image: casjaysdevdocker/minio:latest
     container_name: plane-minio
     restart: always
     pull_policy: always
@@ -266,7 +248,3 @@ networks:
   plane:
     name: plane
     external: false
-  proxy:
-    external: true
-  cloudflare:
-    external: true
