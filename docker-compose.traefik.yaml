@@ -38,6 +38,12 @@ services:
       TZ: ${TZ:-America/New_York}
       NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
       CONTAINER_NAME: plane-web
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '3000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - api
       - worker
@@ -54,6 +60,12 @@ services:
       TZ: ${TZ:-America/New_York}
       NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
       CONTAINER_NAME: plane-space
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '3000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - api
       - worker
@@ -70,6 +82,12 @@ services:
       TZ: ${TZ:-America/New_York}
       NEXT_PUBLIC_API_BASE_URL: ${APP_URL:-http://plane-api:8000}
       CONTAINER_NAME: plane-admin
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '3000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - api
       - worker
@@ -87,6 +105,12 @@ services:
       TZ: ${TZ:-America/New_York}
       <<: *app-env
       CONTAINER_NAME: plane-api
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/8000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       plane-db:
         condition: service_healthy
@@ -108,6 +132,12 @@ services:
       TZ: ${TZ:-America/New_York}
       <<: *app-env
       CONTAINER_NAME: plane-worker
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/8000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - api
     networks:
@@ -124,6 +154,12 @@ services:
       TZ: ${TZ:-America/New_York}
       <<: *app-env
       CONTAINER_NAME: plane-beat-worker
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/8000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - api
     networks:
@@ -140,6 +176,12 @@ services:
       TZ: ${TZ:-America/New_York}
       <<: *app-env
       CONTAINER_NAME: plane-migrator
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/8000']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       plane-db:
         condition: service_healthy
@@ -158,6 +200,12 @@ services:
       BUCKET_NAME: ${BUCKET_NAME:-uploads}
       CONTAINER_NAME: plane-proxy
       HOSTNAME: ${BASE_HOST_NAME:-$HOSTNAME}
+    healthcheck:
+      test: ['CMD', 'curl', '-s', '-o', '/dev/null', '--max-time', '5', 'http://127.0.0.1:80/']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - web
       - api
@@ -208,6 +256,12 @@ services:
     logging: *default-logging
     environment:
       CONTAINER_NAME: plane-redis
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli ping | grep -q PONG']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     volumes:
       - './volumes/data/db/redis/plane:/data'
     networks:
